@@ -2,7 +2,7 @@
 
 Ferramenta gratuita para converter arquivos (HTML, DOCX, TXT, etc.) em PDF **direto no navegador**, sem precisar instalar nada.  
 
-👉 [Acesse aqui a ferramenta](https://fymatsuda.github.io/conversor-images-pdf/)  
+👉 [Acesse aqui a ferramenta](https://fymatsuda.github.io/conversor_to_pdf/)  
 
 ---
 
