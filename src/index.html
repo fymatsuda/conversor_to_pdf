@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Conversor DOCX → PDF (client-side)</title>
+  <meta name="description" content="Conversão de DOCX para PDF usando Google Drive/Docs via OAuth2, rodando 100% no navegador." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111827;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --brand: #60a5fa;
+      --border: #1f2937;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+      background: radial-gradient(1200px 800px at 10% -10%, #1f2937 0%, var(--bg) 50%, var(--bg) 100%);
+      color: var(--text);
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 32px 16px 80px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:24px; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .logo { width: 40px; height: 40px; border-radius: 10px; display:grid; place-items:center; background: linear-gradient(135deg, #3b82f6, #22d3ee); font-weight:800; color:#0b1220; }
+    h1 { font-size: 22px; margin: 0; letter-spacing: 0.2px; }
+    .desc { color: var(--muted); font-size: 14px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:16px; }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border: 1px solid var(--border);
+      border-radius: 16px; padding: 16px; min-height: 200px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+    .card h2 { font-size: 16px; margin: 0 0 8px; }
+    .card p { margin: 0 0 12px; color: var(--muted); font-size:14px; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .btn { appearance:none; border:none; border-radius: 10px; padding: 10px 14px; font-weight:600; cursor:pointer; background: #1f2937; color: var(--text); border:1px solid var(--border); transition: transform .05s ease; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.primary { background: linear-gradient(135deg, #3b82f6, #22d3ee); color:#0b1220; border:none; }
+    .btn.ghost { background: transparent; border:1px dashed var(--border); color: var(--muted); }
+    .btn:disabled { opacity: .6; cursor:not-allowed; }
+    .filebox { position: relative; display:inline-block; }
+    .filebox input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
+    .pill { display:inline-flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); border:1px solid var(--border); padding:6px 10px; border-radius:999px; }
+    .status { margin-top: 10px; font-size:13px; line-height:1.4; white-space:pre-line; }
+    .status.ok { color: var(--ok); }
+    .status.warn { color: var(--warn); }
+    .status.err { color: var(--err); }
+    details { margin-top: 10px; }
+    summary { cursor: pointer; color: var(--muted); }
+    code { background:#0b1220; border:1px solid var(--border); padding:2px 6px; border-radius:6px; }
+    footer { margin-top: 36px; color: var(--muted); font-size: 12px; text-align:center; }
+  </style>
+  <!-- Google Identity Services for OAuth 2.0 (token flow) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo">PDF</div>
+        <div>
+          <h1>Conversor de Arquivos</h1>
+          <div class="desc">Sem servidor · roda no seu navegador · usa seu Google Drive</div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="pill" id="auth-scope-pill">Escopo: <code>drive.file</code></span>
+        <button class="btn" id="signin-btn">Conectar Google</button>
+        <button class="btn ghost" id="signout-btn" style="display:none">Desconectar</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- Card: DOCX -> PDF -->
+      <section class="card" id="card-docx">
+        <h2>DOCX → PDF</h2>
+        <p>Converta documentos do Word para PDF usando o Google Drive/Docs (o arquivo é removido do seu Drive ao final).</p>
+        <div class="row">
+          <label class="filebox btn">
+            <input type="file" id="docx-input" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+            Selecionar DOCX
+          </label>
+          <button class="btn primary" id="convert-btn" disabled>Converter para PDF</button>
+        </div>
+        <div class="status" id="status-docx"></div>
+        <details>
+          <summary>Como funciona</summary>
+          <ul>
+            <li>Você faz login com Google (escopo mínimo: <code>drive.file</code>).</li>
+            <li>O DOCX é enviado e <em>convertido</em> para Google Docs de forma temporária.</li>
+            <li>Exportamos o Google Docs para PDF e baixamos no seu navegador.</li>
+            <li>Removemos o arquivo temporário do seu Drive.</li>
+          </ul>
+        </details>
+      </section>
+
+      <!-- Espaço para futuras caixinhas (HTML->PDF, TXT->PDF etc.) -->
+      <section class="card" aria-disabled="true">
+        <h2>HTML → PDF</h2>
+        <p>Em breve</p>
+        <button class="btn" disabled>Em desenvolvimento</button>
+      </section>
+      <section class="card" aria-disabled="true">
+        <h2>TXT → PDF</h2>
+        <p>Em breve</p>
+        <button class="btn" disabled>Em desenvolvimento</button>
+      </section>
+    </div>
+
+    <footer>
+      <p>Este app usa sua conta Google apenas para criar/ler/deletar arquivos <strong>criados por este app</strong>. Nada é enviado a servidores próprios.</p>
+    </footer>
+  </div>
+
+  <script>
+    // ======== CONFIGURAÇÃO ========
+    // 1) Crie um OAuth 2.0 Client ID do tipo "Web application" no Google Cloud Console.
+    // 2) Adicione o domínio do GitHub Pages em Authorized JavaScript origins, ex.:
+    //    https://seu-usuario.github.io  (e https://seu-usuario.github.io/seu-repo se usar caminho)
+    // 3) Cole o CLIENT_ID abaixo.
+
+    const GOOGLE_CLIENT_ID = "COLE_SEU_CLIENT_ID_AQUI.apps.googleusercontent.com955109384859-ctdif5e4tkmgts5f65uuk80o875lp4s5.apps.googleusercontent.com"; // <-- troque aqui
+    const GOOGLE_OAUTH_SCOPES = "https://www.googleapis.com/auth/drive.file"; // acesso a arquivos criados/abertos pelo app
+
+    // ======== ESTADO GLOBAL ========
+    let tokenClient = null;     // GIS Token Client
+    let accessToken = null;     // OAuth Access Token
+    let accessTokenExp = 0;     // timestamp em ms
+
+    const $ = (sel) => document.querySelector(sel);
+    const statusBox = $('#status-docx');
+
+    function setStatus(msg, type = 'info') {
+      statusBox.classList.remove('ok', 'warn', 'err');
+      if (type === 'ok') statusBox.classList.add('ok');
+      if (type === 'warn') statusBox.classList.add('warn');
+      if (type === 'err') statusBox.classList.add('err');
+      statusBox.textContent = msg;
+    }
+
+    // ======== AUTENTICAÇÃO ========
+    window.onload = () => {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: GOOGLE_OAUTH_SCOPES,
+        prompt: '', // silencioso quando possível
+        callback: (resp) => {
+          if (resp && resp.access_token) {
+            accessToken = resp.access_token;
+            // access_token expira em ~3600s; marcamos exp aproximada
+            accessTokenExp = Date.now() + (resp.expires_in ? (resp.expires_in - 60) * 1000 : 55 * 60 * 1000);
+            $('#signin-btn').style.display = 'none';
+            $('#signout-btn').style.display = 'inline-block';
+            setStatus('Conectado. Selecione um DOCX e clique em Converter.');
+            maybeEnableConvert();
+          }
+        },
+      });
+
+      $('#signin-btn').addEventListener('click', () => {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      });
+      $('#signout-btn').addEventListener('click', signOut);
+      $('#docx-input').addEventListener('change', maybeEnableConvert);
+      $('#convert-btn').addEventListener('click', onConvertClick);
+
+      setStatus('Conecte sua conta Google para começar.');
+    };
+
+    function signOut() {
+      if (accessToken) {
+        // Revoga o token atual
+        google.accounts.oauth2.revoke(accessToken, () => {
+          accessToken = null;
+          accessTokenExp = 0;
+          $('#signin-btn').style.display = 'inline-block';
+          $('#signout-btn').style.display = 'none';
+          setStatus('Desconectado.');
+          maybeEnableConvert();
+        });
+      }
+    }
+
+    function ensureToken() {
+      return new Promise((resolve, reject) => {
+        const stillValid = accessToken && Date.now() < accessTokenExp;
+        if (stillValid) return resolve(accessToken);
+        if (!tokenClient) return reject(new Error('Token client não inicializado.'));
+        tokenClient.callback = (resp) => {
+          if (resp && resp.access_token) {
+            accessToken = resp.access_token;
+            accessTokenExp = Date.now() + (resp.expires_in ? (resp.expires_in - 60) * 1000 : 55 * 60 * 1000);
+            resolve(accessToken);
+          } else {
+            reject(new Error('Falha ao obter token.'));
+          }
+        };
+        tokenClient.requestAccessToken({ prompt: '' });
+      });
+    }
+
+    function maybeEnableConvert() {
+      const hasFile = $('#docx-input').files && $('#docx-input').files.length > 0;
+      const signedIn = !!accessToken;
+      $('#convert-btn').disabled = !(hasFile && signedIn);
+    }
+
+    async function onConvertClick() {
+      const file = $('#docx-input').files[0];
+      if (!file) return;
+      try {
+        setStatus('Convertendo… (1/4) obtendo token…');
+        await ensureToken();
+        setStatus('Convertendo… (2/4) enviando e convertendo para Google Docs…');
+        const docId = await uploadAndConvertToGoogleDoc(file);
+        setStatus('Convertendo… (3/4) exportando para PDF…');
+        const pdfBlob = await exportGoogleDocToPdf(docId);
+        setStatus('Finalizando… (4/4) baixando e limpando arquivos…');
+        downloadBlob(pdfBlob, replaceExt(file.name, '.pdf'));
+        await safeDeleteFile(docId);
+        setStatus('Pronto! PDF baixado e arquivo temporário removido do Drive.', 'ok');
+        // limpa input
+        $('#docx-input').value = '';
+        maybeEnableConvert();
+      } catch (err) {
+        console.error(err);
+        setStatus('Erro: ' + (err?.message || String(err)), 'err');
+      }
+    }
+
+    // ======== DRIVE/Docs helpers ========
+    async function uploadAndConvertToGoogleDoc(file) {
+      // Usamos upload multipart/related para já CONVERTER o DOCX em Google Docs
+      const metadata = {
+        name: stripExt(file.name),
+        mimeType: 'application/vnd.google-apps.document',
+      };
+      const boundary = '-------314159265358979323846';
+      const delimiter = `\r\n--${boundary}\r\n`;
+      const closeDelim = `\r\n--${boundary}--`;
+
+      const metaPart =
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
+      const mediaPartHeader =
+        `Content-Type: ${file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}\r\n\r\n`;
+
+      const fileArrayBuffer = await file.arrayBuffer();
+      const body = new Blob([
+        delimiter,
+        metaPart,
+        delimiter,
+        mediaPartHeader,
+        new Uint8Array(fileArrayBuffer),
+        closeDelim,
+      ], { type: `multipart/related; boundary=${boundary}` });
+
+      const resp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+body,
+});
+
+
+if (!resp.ok) {
+const t = await resp.text();
+throw new Error('Falha no upload/conversão: ' + t);
+}
+const json = await resp.json();
+if (!json.id) throw new Error('Resposta sem ID do arquivo.');
+return json.id; // ID do Google Docs
+}
+
+
+async function exportGoogleDocToPdf(fileId) {
+const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=application/pdf`;
+const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+if (!resp.ok) {
+const t = await resp.text();
+throw new Error('Falha ao exportar PDF: ' + t);
+}
+return await resp.blob();
+}
+
+
+async function safeDeleteFile(fileId) {
+try {
+const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`, {
+method: 'DELETE',
+headers: { Authorization: `Bearer ${accessToken}` },
+});
+// 204 = ok; 404 significa que já não existe (tudo bem)
+if (!(resp.status === 204 || resp.status === 404)) {
+const t = await resp.text();
+console.warn('Não foi possível deletar arquivo temporário:', t);
+}
+} catch (e) {
+console.warn('Erro ao deletar arquivo temporário:', e);
+}
+}
+
+
+function downloadBlob(blob, filename) {
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = filename;
+document.body.appendChild(a);
+a.click();
+a.remove();
+URL.revokeObjectURL(url);
+}
+
+
+// ======== util ========
+function stripExt(name) {
+const i = name.lastIndexOf('.')
+return i > 0 ? name.slice(0, i) : name;
+}
+function replaceExt(name, newExt) {
+return stripExt(name) + newExt;
+}
+</script>
+</body>
+</html>
