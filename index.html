@@ -161,7 +161,7 @@
       //setStatus('stillValid='+stillValid);
       setStatus('accessToken='+accessToken);
       if (stillValid) return accessToken;
-      setStatus('stillValid ='+stillValid);
+      //setStatus('stillValid2 ='+stillValid);
       return new Promise((resolve, reject) => {
         tokenClient.callback = (resp) => {
           setStatus('resp='+resp);
