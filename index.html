@@ -187,7 +187,7 @@
       if (!selectedFile) return;
       setStatus('Obtendo permissão do Google…');
       ensureToken().catch(err => setStatus('Erro: ' + err.message, 'err'));
-      setStatus('após ensureToken');
+      //setStatus('após ensureToken');
     }
 
     async function processarConversao() {
