@@ -158,11 +158,15 @@
     async function ensureToken() {
       const stillValid = accessToken && Date.now() < accessTokenExp;
       if (stillValid) return accessToken;
+      setStatus('stillValid ='+stillValid);
       return new Promise((resolve, reject) => {
         tokenClient.callback = (resp) => {
+          setStatus('resp='+resp);
+          setStatus('resp.access_token'+resp.access_token);
           if (resp && resp.access_token) {
             accessToken = resp.access_token;
             accessTokenExp = Date.now() + (resp.expires_in - 60) * 1000;
+            setStatus('acessToeknExp='+accessTokenExp);
             iniciarLogoutTimer();
             resolve(accessToken);
           } else {
@@ -180,6 +184,7 @@
       if (!selectedFile) return;
       setStatus('Obtendo permissão do Google…');
       ensureToken().catch(err => setStatus('Erro: ' + err.message, 'err'));
+      setStatus('após ensureToken');
     }
 
     async function processarConversao() {
