@@ -158,8 +158,8 @@
     async function ensureToken() {
       setStatus('Inicio ensureToken');
       const stillValid = accessToken && Date.now() < accessTokenExp;
-      //setStatus('stillValid='+stillValid);
-      setStatus('accessToken='+accessToken);
+      setStatus('stillValid='+stillValid);
+      //setStatus('accessToken='+accessToken);
       if (stillValid) return accessToken;
       //setStatus('stillValid2 ='+stillValid);
       return new Promise((resolve, reject) => {
