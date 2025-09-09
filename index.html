@@ -164,9 +164,11 @@
         setStatus('Dentro do stillValid');
         return accessToken;
       }
-      //setStatus('stillValid2 ='+stillValid);
+      setStatus('depois do if do stillvalid');
       return new Promise((resolve, reject) => {
+        setStatus('dentro do Promise');
         tokenClient.callback = (resp) => {
+          setStatus('dentro do tokenCliente.callback');
           setStatus('resp='+resp);
           setStatus('resp.access_token'+resp.access_token);
           if (resp && resp.access_token) {
