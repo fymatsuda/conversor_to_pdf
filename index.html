@@ -160,7 +160,10 @@
       const stillValid = accessToken && Date.now() < accessTokenExp;
       setStatus('stillValid='+stillValid);
       //setStatus('accessToken='+accessToken);
-      if (stillValid) return accessToken;
+      if (stillValid) {
+        setStatus('Dentro do stillValid');
+        return accessToken;
+      }
       //setStatus('stillValid2 ='+stillValid);
       return new Promise((resolve, reject) => {
         tokenClient.callback = (resp) => {
