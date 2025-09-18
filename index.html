@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Conversor DOCX → PDF</title>
+  <title>Conversor DOCX → PDF (client-side)</title>
   <meta name="description" content="Conversão de DOCX para PDF usando Google Drive/Docs via OAuth2, rodando 100% no navegador." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -46,16 +46,21 @@
     .btn { appearance:none; border:none; border-radius: 10px; padding: 10px 14px; font-weight:600; cursor:pointer; background: #1f2937; color: var(--text); border:1px solid var(--border); transition: transform .05s ease; }
     .btn:hover { transform: translateY(-1px); }
     .btn.primary { background: linear-gradient(135deg, #3b82f6, #22d3ee); color:#0b1220; border:none; }
+    .btn.ghost { background: transparent; border:1px dashed var(--border); color: var(--muted); }
     .btn:disabled { opacity: .6; cursor:not-allowed; }
     .filebox { position: relative; display:inline-block; }
     .filebox input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
+    .pill { display:inline-flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); border:1px solid var(--border); padding:6px 10px; border-radius:999px; }
     .status { margin-top: 10px; font-size:13px; line-height:1.4; white-space:pre-line; }
     .status.ok { color: var(--ok); }
     .status.warn { color: var(--warn); }
     .status.err { color: var(--err); }
+    details { margin-top: 10px; }
+    summary { cursor: pointer; color: var(--muted); }
+    code { background:#0b1220; border:1px solid var(--border); padding:2px 6px; border-radius:6px; }
     footer { margin-top: 36px; color: var(--muted); font-size: 12px; text-align:center; }
   </style>
-  <!-- Google Identity Services for OAuth 2.0 -->
+  <!-- Google Identity Services for OAuth 2.0 (token flow) -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -65,50 +70,72 @@
         <div class="logo">PDF</div>
         <div>
           <h1>Conversor de Arquivos</h1>
-          <div class="desc">Sem servidor · roda no navegador · usa seu Google Drive só quando necessário</div>
+          <div class="desc">Sem servidor · roda no seu navegador · usa seu Google Drive</div>
         </div>
+      </div>
+      <div class="row">
+        <span class="pill" id="auth-scope-pill">Escopo: <code>drive.file</code></span>
+        <button class="btn" id="signin-btn">Conectar Google</button>
+        <button class="btn ghost" id="signout-btn" style="display:none">Desconectar</button>
       </div>
     </header>
 
     <div class="grid">
-      <!-- DOCX → PDF -->
-      <section class="card">
+      <!-- Card: DOCX -> PDF -->
+      <section class="card" id="card-docx">
         <h2>DOCX → PDF</h2>
-        <p>Converta documentos do Word para PDF com fidelidade, usando Google Docs. O arquivo é apagado do Drive após a conversão.</p>
+        <p>Converta documentos do Word para PDF usando o Google Drive/Docs (o arquivo é removido do seu Drive ao final).</p>
         <div class="row">
-          <label class="filebox btn primary">
+          <label class="filebox btn">
             <input type="file" id="docx-input" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
             Selecionar DOCX
           </label>
+          <button class="btn primary" id="convert-btn" disabled>Converter para PDF</button>
         </div>
         <div class="status" id="status-docx"></div>
+        <details>
+          <summary>Como funciona</summary>
+          <ul>
+            <li>Você faz login com Google (escopo mínimo: <code>drive.file</code>).</li>
+            <li>O DOCX é enviado e <em>convertido</em> para Google Docs de forma temporária.</li>
+            <li>Exportamos o Google Docs para PDF e baixamos no seu navegador.</li>
+            <li>Removemos o arquivo temporário do seu Drive.</li>
+          </ul>
+        </details>
       </section>
 
-      <!-- Espaços futuros -->
+      <!-- Espaço para futuras caixinhas (HTML->PDF, TXT->PDF etc.) -->
       <section class="card" aria-disabled="true">
         <h2>HTML → PDF</h2>
         <p>Em breve</p>
+        <button class="btn" disabled>Em desenvolvimento</button>
       </section>
       <section class="card" aria-disabled="true">
         <h2>TXT → PDF</h2>
         <p>Em breve</p>
+        <button class="btn" disabled>Em desenvolvimento</button>
       </section>
     </div>
 
     <footer>
-      <p>Este app usa sua conta Google apenas para criar/ler/deletar arquivos <strong>criados por este app</strong>. Nada é enviado a servidores externos.</p>
+      <p>Este app usa sua conta Google apenas para criar/ler/deletar arquivos <strong>criados por este app</strong>. Nada é enviado a servidores próprios.</p>
     </footer>
   </div>
 
   <script>
-    // ========= CONFIG =========
-    const GOOGLE_CLIENT_ID = "955109384859-ctdif5e4tkmgts5f65uuk80o875lp4s5.apps.googleusercontent.com";
-    const GOOGLE_OAUTH_SCOPES = "https://www.googleapis.com/auth/drive.file";
+    // ======== CONFIGURAÇÃO ========
+    // 1) Crie um OAuth 2.0 Client ID do tipo "Web application" no Google Cloud Console.
+    // 2) Adicione o domínio do GitHub Pages em Authorized JavaScript origins, ex.:
+    //    https://seu-usuario.github.io  (e https://seu-usuario.github.io/seu-repo se usar caminho)
+    // 3) Cole o CLIENT_ID abaixo.
 
-    let tokenClient = null;
-    let accessToken = null;
-    let accessTokenExp = 0;
-    let logoutTimer = null;
+    const GOOGLE_CLIENT_ID = "955109384859-ctdif5e4tkmgts5f65uuk80o875lp4s5.apps.googleusercontent.com"; 
+    const GOOGLE_OAUTH_SCOPES = "https://www.googleapis.com/auth/drive.file"; // acesso a arquivos criados/abertos pelo app
+
+    // ======== ESTADO GLOBAL ========
+    let tokenClient = null;     // GIS Token Client
+    let accessToken = null;     // OAuth Access Token
+    let accessTokenExp = 0;     // timestamp em ms
 
     const $ = (sel) => document.querySelector(sel);
     const statusBox = $('#status-docx');
@@ -121,95 +148,99 @@
       statusBox.textContent = msg;
     }
 
-    // Inicializa cliente OAuth assim que a página carrega
+    // ======== AUTENTICAÇÃO ========
     window.onload = () => {
       tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
         scope: GOOGLE_OAUTH_SCOPES,
-        prompt: '', // silencioso se já tiver login
+        prompt: '', // silencioso quando possível
         callback: (resp) => {
           if (resp && resp.access_token) {
             accessToken = resp.access_token;
-            accessTokenExp = Date.now() + (resp.expires_in - 60) * 1000;
-            iniciarLogoutTimer();
-            processarConversao(); // continua fluxo assim que login obtido
-          } else {
-            setStatus('Falha no login Google.', 'err');
+            // access_token expira em ~3600s; marcamos exp aproximada
+            accessTokenExp = Date.now() + (resp.expires_in ? (resp.expires_in - 60) * 1000 : 55 * 60 * 1000);
+            $('#signin-btn').style.display = 'none';
+            $('#signout-btn').style.display = 'inline-block';
+            setStatus('Conectado. Selecione um DOCX e clique em Converter.');
+            maybeEnableConvert();
           }
         },
       });
 
-      $('#docx-input').addEventListener('change', handleFileSelected);
+      $('#signin-btn').addEventListener('click', () => {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      });
+      $('#signout-btn').addEventListener('click', signOut);
+      $('#docx-input').addEventListener('change', maybeEnableConvert);
+      $('#convert-btn').addEventListener('click', onConvertClick);
+
+      setStatus('Conecte sua conta Google para começar.');
     };
 
-    function iniciarLogoutTimer() {
-      if (logoutTimer) clearTimeout(logoutTimer);
-      logoutTimer = setTimeout(() => {
-        if (accessToken) {
-          google.accounts.oauth2.revoke(accessToken, () => {
-            accessToken = null;
-            accessTokenExp = 0;
-            setStatus('Sessão expirada após 5 minutos. Faça login novamente na próxima conversão.', 'warn');
-          });
-        }
-      }, 5 * 60 * 1000); // 5 minutos
+    function signOut() {
+      if (accessToken) {
+        // Revoga o token atual
+        google.accounts.oauth2.revoke(accessToken, () => {
+          accessToken = null;
+          accessTokenExp = 0;
+          $('#signin-btn').style.display = 'inline-block';
+          $('#signout-btn').style.display = 'none';
+          setStatus('Desconectado.');
+          maybeEnableConvert();
+        });
+      }
     }
 
-    async function ensureToken() {
-      const stillValid = accessToken && Date.now() < accessTokenExp;
-      if (stillValid) {
-        return accessToken;
-      }
+    function ensureToken() {
       return new Promise((resolve, reject) => {
-        setStatus('dentro do Promise');
+        const stillValid = accessToken && Date.now() < accessTokenExp;
+        if (stillValid) return resolve(accessToken);
+        if (!tokenClient) return reject(new Error('Token client não inicializado.'));
         tokenClient.callback = (resp) => {
-          console.log("Resposta do Google:", resp);
           if (resp && resp.access_token) {
             accessToken = resp.access_token;
-            accessTokenExp = Date.now() + (resp.expires_in - 60) * 1000;
-            setStatus('acessToeknExp');
-            iniciarLogoutTimer();
+            accessTokenExp = Date.now() + (resp.expires_in ? (resp.expires_in - 60) * 1000 : 55 * 60 * 1000);
             resolve(accessToken);
           } else {
             reject(new Error('Falha ao obter token.'));
           }
         };
-        tokenClient.requestAccessToken({ prompt: 'consent' });
+        tokenClient.requestAccessToken({ prompt: '' });
       });
     }
 
-    let selectedFile = null;
-
-    function handleFileSelected(e) {
-      selectedFile = e.target.files[0];
-      if (!selectedFile) return;
-      ensureToken().catch(err => setStatus('Erro: ' + err.message, 'err'));
+    function maybeEnableConvert() {
+      const hasFile = $('#docx-input').files && $('#docx-input').files.length > 0;
+      const signedIn = !!accessToken;
+      $('#convert-btn').disabled = !(hasFile && signedIn);
     }
 
-    async function processarConversao() {
-      if (!selectedFile) return;
+    async function onConvertClick() {
+      const file = $('#docx-input').files[0];
+      if (!file) return;
       try {
-        setStatus('Convertendo… (1/4) Enviando para Google Docs…');
-        const docId = await uploadAndConvertToGoogleDoc(selectedFile);
-
-        setStatus('Convertendo… (2/4) Exportando para PDF…');
+        setStatus('Convertendo… (1/4) obtendo token…');
+        await ensureToken();
+        setStatus('Convertendo… (2/4) enviando e convertendo para Google Docs…');
+        const docId = await uploadAndConvertToGoogleDoc(file);
+        setStatus('Convertendo… (3/4) exportando para PDF…');
         const pdfBlob = await exportGoogleDocToPdf(docId);
-
-        setStatus('Finalizando… (3/4) Baixando e limpando…');
-        downloadBlob(pdfBlob, replaceExt(selectedFile.name, '.pdf'));
+        setStatus('Finalizando… (4/4) baixando e limpando arquivos…');
+        downloadBlob(pdfBlob, replaceExt(file.name, '.pdf'));
         await safeDeleteFile(docId);
-
         setStatus('Pronto! PDF baixado e arquivo temporário removido do Drive.', 'ok');
+        // limpa input
         $('#docx-input').value = '';
-        selectedFile = null;
+        maybeEnableConvert();
       } catch (err) {
         console.error(err);
-        setStatus('Erro: ' + (err.message || String(err)), 'err');
+        setStatus('Erro: ' + (err?.message || String(err)), 'err');
       }
     }
 
-    // ======== Google Drive Helpers ========
+    // ======== DRIVE/Docs helpers ========
     async function uploadAndConvertToGoogleDoc(file) {
+      // Usamos upload multipart/related para já CONVERTER o DOCX em Google Docs
       const metadata = {
         name: stripExt(file.name),
         mimeType: 'application/vnd.google-apps.document',
@@ -218,62 +249,86 @@
       const delimiter = `\r\n--${boundary}\r\n`;
       const closeDelim = `\r\n--${boundary}--`;
 
-      const metaPart = 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
-      const mediaPartHeader = `Content-Type: ${file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}\r\n\r\n`;
+      const metaPart =
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
+      const mediaPartHeader =
+        `Content-Type: ${file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}\r\n\r\n`;
 
       const fileArrayBuffer = await file.arrayBuffer();
-      const body = new Blob([delimiter, metaPart, delimiter, mediaPartHeader, new Uint8Array(fileArrayBuffer), closeDelim],
-        { type: `multipart/related; boundary=${boundary}` });
+      const body = new Blob([
+        delimiter,
+        metaPart,
+        delimiter,
+        mediaPartHeader,
+        new Uint8Array(fileArrayBuffer),
+        closeDelim,
+      ], { type: `multipart/related; boundary=${boundary}` });
 
       const resp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}` },
-        body,
-      });
+body,
+});
 
-      if (!resp.ok) throw new Error('Falha no upload: ' + await resp.text());
-      const json = await resp.json();
-      return json.id;
-    }
 
-    async function exportGoogleDocToPdf(fileId) {
-      const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/pdf`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!resp.ok) throw new Error('Falha ao exportar PDF: ' + await resp.text());
-      return await resp.blob();
-    }
+if (!resp.ok) {
+const t = await resp.text();
+throw new Error('Falha no upload/conversão: ' + t);
+}
+const json = await resp.json();
+if (!json.id) throw new Error('Resposta sem ID do arquivo.');
+return json.id; // ID do Google Docs
+}
 
-    async function safeDeleteFile(fileId) {
-      try {
-        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      } catch (e) {
-        console.warn('Erro ao deletar arquivo temporário:', e);
-      }
-    }
 
-    function downloadBlob(blob, filename) {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    }
+async function exportGoogleDocToPdf(fileId) {
+const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=application/pdf`;
+const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+if (!resp.ok) {
+const t = await resp.text();
+throw new Error('Falha ao exportar PDF: ' + t);
+}
+return await resp.blob();
+}
 
-    // ======== Utils ========
-    function stripExt(name) {
-      const i = name.lastIndexOf('.');
-      return i > 0 ? name.slice(0, i) : name;
-    }
-    function replaceExt(name, newExt) {
-      return stripExt(name) + newExt;
-    }
-  </script>
+
+async function safeDeleteFile(fileId) {
+try {
+const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`, {
+method: 'DELETE',
+headers: { Authorization: `Bearer ${accessToken}` },
+});
+// 204 = ok; 404 significa que já não existe (tudo bem)
+if (!(resp.status === 204 || resp.status === 404)) {
+const t = await resp.text();
+console.warn('Não foi possível deletar arquivo temporário:', t);
+}
+} catch (e) {
+console.warn('Erro ao deletar arquivo temporário:', e);
+}
+}
+
+
+function downloadBlob(blob, filename) {
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = filename;
+document.body.appendChild(a);
+a.click();
+a.remove();
+URL.revokeObjectURL(url);
+}
+
+
+// ======== util ========
+function stripExt(name) {
+const i = name.lastIndexOf('.')
+return i > 0 ? name.slice(0, i) : name;
+}
+function replaceExt(name, newExt) {
+return stripExt(name) + newExt;
+}
+</script>
 </body>
 </html>
