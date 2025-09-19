@@ -166,7 +166,9 @@
     setStatus('Obtendo permissão do Google…');
 
     tokenClient.callback = async (resp) => {
+      setStatus('Dentro do callback');
       if (resp && resp.access_token) {
+        setStatus('Dentro do IF');
         accessToken = resp.access_token;
         accessTokenExp = Date.now() + (resp.expires_in - 60) * 1000;
         iniciarLogoutTimer();
@@ -187,6 +189,7 @@
       }
     };
 
+    setStatus('login do Google');
     // Dispara login do Google diretamente no evento
     tokenClient.requestAccessToken({ prompt: 'consent' });
   }
